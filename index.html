@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>racism simulator</title>
 <style>
 canvas {
     border:1px solid #d3d3d3;
@@ -11,6 +12,21 @@ canvas {
 </head>
 <body onload="onLoad()">
 <h1>racism simulator</h1>
+<p>
+this simulates evolution using rules similar to those in <a href="https://youtu.be/lFEgohhfxOA">Primer's video "The Natural Selection Of Altruism"</a>.
+in that video, it is in the green bearded blobs' interest to share their extra food only with other green beards.
+</p>
+<p>
+in <a href="https://youtu.be/rvskMHn0sqQ">Kurzgesagt's video "Egoistic Altruism"</a>,
+they argue that people create more demand for innovation when they are not dying of hunger.
+</p>
+<p>
+this webpage extends Primer's simulation by introducing an "innovation level".
+innovation level increases the amount of food given per day.
+innovation demand is the percentage of an innovation level added for each blob that is not starving.
+education is the probability a non-innovative blob becomes innovative or produces an innovative child.
+(innovative blobs provide double progress.)
+</p>
 <h2>step one:</h2>
 <div>
   simulation size: <input type="number" id="size" value="20">
@@ -19,14 +35,6 @@ canvas {
   population proportion: <input type="range" min="0" max="100" value="50" class="slider" id="proportion">
 </div>
 <div>
-  innovators proportion: <input type="range" min="0" max="100" value="0" class="slider" id="innovators">
-</div>
-<!--
-<div>
-  blue also gives: <input type="checkbox" id="blueAltruism">
-</div>
--->
-<div>
 <button onclick="setupSimulation()">set up new simulation</button>
 </div>
 <h2>step two:</h2>
@@ -34,11 +42,27 @@ canvas {
   altruism bonus: <input type="range" min="0" max="100" value="50" class="slider" id="altruism">
 </div>
 <div>
-  racism mode: <input type="checkbox" id="racism">
+  red is altruistic: <input type="checkbox" id="redAltruism">
+</div>
+<div>
+  red is racist: <input type="checkbox" id="redRacism">
+</div>
+<div>
+  blue is altruistic: <input type="checkbox" id="blueAltruism">
+</div>
+<div>
+  blue is racist: <input type="checkbox" id="blueRacism">
+</div>
+<div>
+  innovation demand: <input type="range" min="0" max="100" value="0" class="slider" id="innovationDemand">
+</div>
+<div>
+  education: <input type="range" min="0" max="100" value="0" class="slider" id="innovativeKids">
 </div>
 <canvas id="myCanvas"></canvas>
 <button onclick="runSimulation()">run</button>
-<button onclick="runFasterSimulation()">rush b</button>
+<button onclick="runFasterSimulation()">run (2x)</button>
+<button onclick="runFastestSimulation()">rush b</button>
 <button onclick="pauseSimulation()">pause</button>
 <script>
 
@@ -61,8 +85,10 @@ var blobs = [];
 var foods = [];
 var size = 0;
 var altruismBonus = 0.5;
-var racism = false;
+var redAltruism = false;
+var redRacist = false;
 var blueAltruism = false;
+var blueRacist = false;
 var innovationLevel = 0;
 var day = 0;
 var updateLoop;
@@ -136,8 +162,17 @@ class Blob extends Entity {
   }
   reproduce() {
     let newBlob = new Blob(this.color);
-    newBlob.isInnovator = this.isInnovator;
+    newBlob.isInnovator = this.isInnovator || (Math.random() < innovativeKids);
     return newBlob;
+  }
+  isAltruistic() {
+    return (this.color == "red" && redAltruism) || (this.color == "blue" && blueAltruism);
+  }
+  isRacist() {
+    return (this.color == "red" && redRacism) || (this.color == "blue" && blueRacism);
+  }
+  likes(/* Blob */ that) {
+    return this.color == that.color || !this.isRacist();
   }
 }
 
@@ -154,16 +189,16 @@ class Food extends Entity {
 function setupSimulation() {
   clearInterval(updateLoop);
   innovationLevel = 0;
+  innovativeKids = document.getElementById('innovativeKids').value / 100;
+  innovationDemand = document.getElementById('innovationDemand').value / 100;
   day = 1;
   size = parseInt(document.getElementById('size').value);
   var proportion = document.getElementById('proportion').value / 100;
   altruismBonus = document.getElementById('altruism').value / 100;
-  racism = document.getElementById('racism').checked;
-  // blueAltruism = document.getElementById('blueAltruism').checked / 100;
-  console.log(blueAltruism);
-  var innovators = document.getElementById('innovators').value / 100;
-  console.log(racism);
-  console.log(altruismBonus);
+  redAltruism = document.getElementById('redAltruism').checked / 100;
+  redRacism = document.getElementById('redRacism').checked / 100;
+  blueAltruism = document.getElementById('blueAltruism').checked / 100;
+  blueRacism = document.getElementById('blueRacism').checked / 100;
   var numBlues = size * proportion;
   var numReds = size * (1 - proportion);
   blobs = [];
@@ -182,19 +217,6 @@ function setupSimulation() {
     blobs[j] = temp;
   }
 
-  if (innovators) {
-    for (let i = 0; i < innovators * size; i++) {
-      blobs[i].isInnovator = true;
-    }
-  }
-
-  for (let i = 0; i < blobs.length; i++) {
-    let j = i + Math.floor(Math.random() * (blobs.length - i));
-    temp = blobs[i];
-    blobs[i] = blobs[j];
-    blobs[j] = temp;
-  }
-
   for (var i = 0; i < size; i++) {
     foods.push(new Food());
   }
@@ -203,11 +225,16 @@ function setupSimulation() {
 
 function setupNextDay() {
   day += 1;
+  totalInnovationDemand = 0;
   for (let blob of blobs) {
-    if (blob.foodEaten >= 1 && blob.isInnovator) {
-      innovationLevel += 1;
+    if (blob.foodEaten >= 1) {
+      totalInnovationDemand += innovationDemand;
+      if (blob.isInnovator) {
+        totalInnovationDemand += 1;
+      }
     }
   }
+  innovationLevel += totalInnovationDemand;
   nextGenBlobs = [];
   for (let blob of blobs) {
     if (blob.foodEaten >= 1) {
@@ -240,6 +267,11 @@ function runFasterSimulation() {
   updateLoop = setInterval(updateAndDrawSimulation, 8);
 }
 
+function runFastestSimulation() {
+  clearInterval(updateLoop);
+  updateLoop = setInterval(updateAndDrawSimulation, 4);
+}
+
 function pauseSimulation() {
   clearInterval(updateLoop);
 }
@@ -249,13 +281,18 @@ function updateAndDrawSimulation() {
 
   // we let these get hotswapped if need to
   altruismBonus = document.getElementById('altruism').value / 100;
-  racism = document.getElementById('racism').checked;
+  redAltruism = document.getElementById('redAltruism').checked / 100;
+  redRacism = document.getElementById('redRacism').checked / 100;
+  blueAltruism = document.getElementById('blueAltruism').checked / 100;
+  blueRacism = document.getElementById('blueRacism').checked / 100;
+  innovativeKids = document.getElementById('innovativeKids').value / 100;
+  innovationDemand = document.getElementById('innovationDemand').value / 100;
 
   for (var blob of blobs) {
-    if (blob.foodEaten == 2 && (blob.color == "red" || blueAltruism)) {
+    if (blob.foodEaten == 2 && blob.isAltruistic()) {
       var targetBlob;
       for (var blob2 of blobs) {
-        if (blob2.foodEaten == 0 && (blob2.color == "red" || !racism)) {
+        if (blob2.foodEaten == 0 && blob.likes(blob2)) {
           targetBlob = blob2;
           break;
         }
@@ -282,19 +319,21 @@ function updateAndDrawSimulation() {
   }
 
   for (var blob of blobs) {
-    for (var foodId = foods.length - 1; foodId >= 0; foodId--) {
-      var food = foods[foodId];
-      var distance = blob.getDistanceTo(food);
-      if (distance < 15) {
-        blob.foodEaten += 1;
-        foods.splice(foodId, 1);
-      } 
+    if (blob.foodEaten < 2) {
+      for (var foodId = foods.length - 1; foodId >= 0; foodId--) {
+        var food = foods[foodId];
+        var distance = blob.getDistanceTo(food);
+        if (distance < 15) {
+          blob.foodEaten += 1;
+          foods.splice(foodId, 1);
+        } 
+      }
     }
   }
 
   drawSimulation();
 
-  if (foods.length == 0) {
+  if (foods.length == 0 || blobs.findIndex(b => b.foodEaten < 2) == -1) {
     setupNextDay();
   }
 }
@@ -314,12 +353,15 @@ function drawSimulation() {
   document.getElementById("blueCount").innerHTML = blobs.filter(b => b.color == "blue").length;
   document.getElementById("blueCount").innerHTML += " (" + blobs.filter(b => b.color == "blue" && b.isInnovator).length + " innovator(s))";
   document.getElementById("foodCount").innerHTML = foods.length;
+  document.getElementById("startingFoodCount").innerHTML = Math.floor(size+innovationLevel);
+  document.getElementById("wealth").innerHTML = Math.floor(size+innovationLevel)/blobs.length;
 }
 </script>
-<p>Day: <span id="day"></span></p>
+<p>Generation: <span id="day"></span></p>
 <p>Total: <span id="totalCount"></span></p>
 <p>Reds: <span id="redCount"></span></p>
 <p>Blues: <span id="blueCount"></span></p>
-<p>Food: <span id="foodCount"></span></p>
+<p>Food: <span id="foodCount"></span>/<span id="startingFoodCount"></span></p>
+<p>Wealth = totalPop/totalFood: <span id="wealth"></span></p>
 </body>
 </html>
