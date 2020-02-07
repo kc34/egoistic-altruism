@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<style>
+canvas {
+    border:1px solid #d3d3d3;
+    background-color: #f1f1f1;
+}
+</style>
+</head>
+<body onload="onLoad()">
+<h1>racism simulator</h1>
+<h2>step one:</h2>
+<div>
+  simulation size: <input type="number" id="size" value="20">
+</div>
+<div>
+  population proportion: <input type="range" min="0" max="100" value="50" class="slider" id="proportion">
+</div>
+<div>
+  innovators proportion: <input type="range" min="0" max="100" value="0" class="slider" id="innovators">
+</div>
+<!--
+<div>
+  blue also gives: <input type="checkbox" id="blueAltruism">
+</div>
+-->
+<div>
+<button onclick="setupSimulation()">set up new simulation</button>
+</div>
+<h2>step two:</h2>
+<div>
+  altruism bonus: <input type="range" min="0" max="100" value="50" class="slider" id="altruism">
+</div>
+<div>
+  racism mode: <input type="checkbox" id="racism">
+</div>
+<canvas id="myCanvas"></canvas>
+<button onclick="runSimulation()">run</button>
+<button onclick="runFasterSimulation()">rush b</button>
+<button onclick="pauseSimulation()">pause</button>
+<script>
+
+// CONFIG
+const WIDTH = 500;
+const HEIGHT = 500;
+
+var canvas = document.getElementById("myCanvas");
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
+var context = canvas.getContext("2d");
+context.clearRect(0, 0, canvas.width, canvas.height);
+
+function onLoad() {
+  // document.body.insertBefore(canvas, document.body.childNodes[0]);
+  setupSimulation();
+}
+
+var blobs = [];
+var foods = [];
+var size = 0;
+var altruismBonus = 0.5;
+var racism = false;
+var blueAltruism = false;
+var innovationLevel = 0;
+var day = 0;
+var updateLoop;
+
+class Entity {
+  constructor() {
+    this.x = 0;
+    this.y = 0;
+    this.dx = 0;
+    this.dy = 0;
+    this.ddx = 0;
+    this.ddy = 0;
+    this.radius = 0;
+    this.color = "black";
+  }
+  getDistanceTo(/* Entity */ that) {
+    return Math.abs(that.x - this.x) + Math.abs(that.y - this.y);
+  }
+  draw() {
+    context.fillStyle = this.color;
+    context.beginPath();
+    context.arc(this.x, this.y, this.radius, 0, 2 * Math.PI);
+    context.fill()
+  }
+  update() {}
+}
+
+class Blob extends Entity {
+  constructor(color) {
+    super();
+    var side = Math.floor(Math.random() * 4);
+    var sidePosition = 10 + Math.random() * 480;
+    this.x = 10;
+    this.y = 10;
+    if (side == 0) {
+      this.x = sidePosition;
+    } else if (side == 1) {
+      this.x = 500 - 10;
+      this.y = sidePosition;
+    } else if (side == 2) {
+      this.x = sidePosition;
+      this.y = 500 - 10;
+    } else {
+      this.y = sidePosition;
+    }
+    this.color = color;
+    this.speed = 1;
+    this.radius = 10;
+    this.foodEaten = 0;
+    this.altruismBonus = false;
+    this.isInnovater = false;
+  }
+  update(foods) {
+    this.ddx = 0;
+    this.ddy = 0;
+    if (foods.length == 0) {
+      return;
+    }
+    if (this.foodEaten >= 2) {
+      return;
+    }
+    var closestFood = foods.reduce((a, b) => {
+      return this.getDistanceTo(a) < this.getDistanceTo(b) ? a : b
+    })
+
+    let deltaX = closestFood.x - this.x;
+    let deltaY = closestFood.y - this.y;
+    
+    this.ddx = deltaX / this.getDistanceTo(closestFood);
+    this.ddy = deltaY / this.getDistanceTo(closestFood);
+  }
+  reproduce() {
+    let newBlob = new Blob(this.color);
+    newBlob.isInnovator = this.isInnovator;
+    return newBlob;
+  }
+}
+
+class Food extends Entity {
+  constructor() {
+    super();
+    this.x = 15 + Math.random() * 470
+    this.y = 15 + Math.random() * 470
+    this.radius = 5;
+    this.color = "green";
+  }
+}
+
+function setupSimulation() {
+  clearInterval(updateLoop);
+  innovationLevel = 0;
+  day = 1;
+  size = parseInt(document.getElementById('size').value);
+  var proportion = document.getElementById('proportion').value / 100;
+  altruismBonus = document.getElementById('altruism').value / 100;
+  racism = document.getElementById('racism').checked;
+  // blueAltruism = document.getElementById('blueAltruism').checked / 100;
+  console.log(blueAltruism);
+  var innovators = document.getElementById('innovators').value / 100;
+  console.log(racism);
+  console.log(altruismBonus);
+  var numBlues = size * proportion;
+  var numReds = size * (1 - proportion);
+  blobs = [];
+  foods = [];
+  for (var i = 0; i < numBlues; i++) {
+    blobs.push(new Blob("blue"));
+  }
+  for (var i = 0; i < numReds; i++) {
+    blobs.push(new Blob("red"));
+  }
+
+  for (let i = 0; i < blobs.length; i++) {
+    let j = i + Math.floor(Math.random() * (blobs.length - i));
+    temp = blobs[i];
+    blobs[i] = blobs[j];
+    blobs[j] = temp;
+  }
+
+  if (innovators) {
+    for (let i = 0; i < innovators * size; i++) {
+      blobs[i].isInnovator = true;
+    }
+  }
+
+  for (let i = 0; i < blobs.length; i++) {
+    let j = i + Math.floor(Math.random() * (blobs.length - i));
+    temp = blobs[i];
+    blobs[i] = blobs[j];
+    blobs[j] = temp;
+  }
+
+  for (var i = 0; i < size; i++) {
+    foods.push(new Food());
+  }
+  drawSimulation();
+}
+
+function setupNextDay() {
+  day += 1;
+  for (let blob of blobs) {
+    if (blob.foodEaten >= 1 && blob.isInnovator) {
+      innovationLevel += 1;
+    }
+  }
+  nextGenBlobs = [];
+  for (let blob of blobs) {
+    if (blob.foodEaten >= 1) {
+      nextGenBlobs.push(blob.reproduce());
+    }
+    if (blob.foodEaten >= 2) {
+      nextGenBlobs.push(blob.reproduce());
+    }
+    if (blob.altruismBonus == true) {
+      if (Math.random() < altruismBonus) {
+        nextGenBlobs.push(blob.reproduce());
+      }
+    }
+  }
+  blobs = nextGenBlobs;
+  foods = [];
+  for (var i = 0; i < size + innovationLevel; i++) {
+    foods.push(new Food());
+  }
+  drawSimulation();
+}
+
+function runSimulation() {
+  clearInterval(updateLoop);
+  updateLoop = setInterval(updateAndDrawSimulation, 16);
+}
+
+function runFasterSimulation() {
+  clearInterval(updateLoop);
+  updateLoop = setInterval(updateAndDrawSimulation, 8);
+}
+
+function pauseSimulation() {
+  clearInterval(updateLoop);
+}
+
+function updateAndDrawSimulation() {
+  // update
+
+  // we let these get hotswapped if need to
+  altruismBonus = document.getElementById('altruism').value / 100;
+  racism = document.getElementById('racism').checked;
+
+  for (var blob of blobs) {
+    if (blob.foodEaten == 2 && (blob.color == "red" || blueAltruism)) {
+      var targetBlob;
+      for (var blob2 of blobs) {
+        if (blob2.foodEaten == 0 && (blob2.color == "red" || !racism)) {
+          targetBlob = blob2;
+          break;
+        }
+      }
+      if (targetBlob) {
+        blob.foodEaten -= 1;
+        targetBlob.foodEaten += 1;
+        blob.altruismBonus = true;
+      }
+    }
+  }
+
+  for (var blob of blobs) {
+    blob.update(foods);
+  }
+
+  for (var blob of blobs) {
+    blob.x += blob.dx;
+    blob.y += blob.dy;
+    blob.dx += blob.ddx;
+    blob.dy += blob.ddy;
+    blob.dx *= 0.8;
+    blob.dy *= 0.8;
+  }
+
+  for (var blob of blobs) {
+    for (var foodId = foods.length - 1; foodId >= 0; foodId--) {
+      var food = foods[foodId];
+      var distance = blob.getDistanceTo(food);
+      if (distance < 15) {
+        blob.foodEaten += 1;
+        foods.splice(foodId, 1);
+      } 
+    }
+  }
+
+  drawSimulation();
+
+  if (foods.length == 0) {
+    setupNextDay();
+  }
+}
+
+function drawSimulation() {
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  for (var blob of blobs) {
+    blob.draw();
+  }
+  for (var food of foods) {
+    food.draw();
+  }
+  document.getElementById("day").innerHTML = day;
+  document.getElementById("totalCount").innerHTML = blobs.length;
+  document.getElementById("redCount").innerHTML = blobs.filter(b => b.color == "red").length;
+  document.getElementById("redCount").innerHTML += " (" + blobs.filter(b => b.color == "red" && b.isInnovator).length + " innovator(s))";
+  document.getElementById("blueCount").innerHTML = blobs.filter(b => b.color == "blue").length;
+  document.getElementById("blueCount").innerHTML += " (" + blobs.filter(b => b.color == "blue" && b.isInnovator).length + " innovator(s))";
+  document.getElementById("foodCount").innerHTML = foods.length;
+}
+</script>
+<p>Day: <span id="day"></span></p>
+<p>Total: <span id="totalCount"></span></p>
+<p>Reds: <span id="redCount"></span></p>
+<p>Blues: <span id="blueCount"></span></p>
+<p>Food: <span id="foodCount"></span></p>
+</body>
+</html>
